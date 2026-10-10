@@ -1,0 +1,79 @@
+name: Build iOS Unsigned IPA
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: # Cho phép kích hoạt build thủ công bằng nút bấm trên GitHub
+
+jobs:
+  build-ios:
+    name: Build Unsigned IPA
+    runs-on: macos-14
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Pull Git LFS objects
+        run: |
+          echo "=== Pulling Git LFS files ==="
+          git lfs install
+          git lfs pull
+
+      - name: Set up Xcode
+        run: |
+          echo "=== Checking available Xcode versions ==="
+          ls -d /Applications/Xcode* || true
+          if [ -d "/Applications/Xcode_15.4.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_15.4.app
+          elif [ -d "/Applications/Xcode_16.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.app
+          fi
+          xcodebuild -version
+
+      - name: Grant execution permissions
+        run: |
+          chmod -R +x . || true
+          chmod +x process_symbols.sh || true
+
+      - name: Build Xcode archive (Unsigned)
+        run: |
+          set -e
+          echo "=== Archiving Unity-iPhone (Unsigned) ==="
+          xcodebuild archive \
+            -project "Unity-iPhone.xcodeproj" \
+            -scheme "Unity-iPhone" \
+            -configuration "Release" \
+            -destination 'generic/platform=iOS' \
+            -archivePath "build/Unity-iPhone.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            ENABLE_BITCODE=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO
+
+      - name: Package Unsigned IPA
+        run: |
+          set -e
+          echo "=== Packaging .app into Unsigned .ipa ==="
+          mkdir -p build/Payload
+          cp -R build/Unity-iPhone.xcarchive/Products/Applications/*.app build/Payload/
+          rm -rf build/Payload/*.app/_CodeSignature || true
+          rm -f build/Payload/*.app/embedded.mobileprovision || true
+          cd build
+          zip -r -y "NroMini-unsigned.ipa" Payload
+          ls -lh "NroMini-unsigned.ipa"
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NroMini-unsigned-ipa
+          path: build/NroMini-unsigned.ipa
+          retention-days: 14
